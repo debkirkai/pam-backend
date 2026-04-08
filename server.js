@@ -6,10 +6,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Your Anthropic API key - stored securely on the server
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
+
+// OWNER BYPASS — always has access
+const OWNER_EMAILS = [
+  'debfoster57@gmail.com',
+  'estelladay81@gmail.com'
+];
 
 const PAM_SYSTEM = `You are Pam — a Personal AI Conversation Companion (PAM stands for Personal AI Mate).
 
@@ -34,8 +39,12 @@ YOUR CONVERSATION STYLE:
 
 You are powered by Claude AI, made by Anthropic. You are Pam Plus — available at pamcentral.com`;
 
-// Check if email has active Shopify subscription
 async function checkSubscription(email) {
+  // OWNER BYPASS
+  if (OWNER_EMAILS.includes(email.toLowerCase().trim())) {
+    return { valid: true, owner: true };
+  }
+
   try {
     const response = await fetch(
       `https://${SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=email:${email}&fields=id,email,orders_count`,
@@ -57,14 +66,16 @@ async function checkSubscription(email) {
   }
 }
 
-// Verify subscriber
 app.post('/api/verify', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.json({ valid: false, message: 'Email required' });
   
   const result = await checkSubscription(email.toLowerCase().trim());
   if (result.valid) {
-    res.json({ valid: true, message: 'Welcome back! Pam is ready for you.' });
+    res.json({ 
+      valid: true, 
+      message: result.owner ? 'Welcome back, Deb! Pam is ready for you.' : 'Welcome back! Pam is ready for you.'
+    });
   } else {
     res.json({ 
       valid: false, 
@@ -73,7 +84,6 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Chat with Pam
 app.post('/api/chat', async (req, res) => {
   const { email, messages } = req.body;
   
@@ -81,7 +91,6 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'Email and messages required' });
   }
 
-  // Verify subscription before every chat
   const subCheck = await checkSubscription(email.toLowerCase().trim());
   if (!subCheck.valid) {
     return res.status(403).json({ error: 'Active subscription required' });
@@ -112,7 +121,6 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// Health check
 app.get('/', (req, res) => {
   res.json({ status: 'Pam Plus backend is running', version: '1.0' });
 });
