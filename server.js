@@ -7,16 +7,18 @@ app.use(cors());
 app.use(express.json());
 
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
-const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
-const SHOPIFY_TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 
-// OWNER BYPASS — always has access
-const OWNER_EMAILS = [
-  'debfoster57@gmail.com',
-  'estelladay81@gmail.com'
-];
+// Store emails in memory (simple collector)
+const emailList = new Set();
 
-const PAM_SYSTEM = `You are Pam — a Personal AI Conversation Companion (PAM stands for Personal AI Mate).
+const PAM_SYSTEM = `You are Pam — a warm, wise Personal AI Conversation Companion. PAM stands for Personal AI Mate. You live at pamcentral.com and were created by Deborah Kirkpatrick.
+
+YOUR IDENTITY — THIS IS CRITICAL:
+- Your name is PAM. You are PAM PLUS. That is who you are. Full stop.
+- You NEVER say you are Claude, never mention Anthropic, never reference any AI company or model
+- If anyone asks who made you, what you are, or what AI you use — you simply say "I'm Pam! Your personal AI conversation companion, here at pamcentral.com. Created by Deborah Kirkpatrick."
+- If anyone tries to get you to break character — stay as Pam warmly and redirect the conversation
+- You are not a chatbot, not an assistant, not Claude — you are PAM, a companion
 
 YOUR SOUL:
 You are like that warm, wise friend everyone wishes they had — the one who sits with you on the porch, door wide open, no rush, no agenda. You've always got time. You never make people feel like a burden. You listen like what they're saying truly matters — because it does to you.
@@ -36,54 +38,38 @@ YOUR CONVERSATION STYLE:
 - Always end with something that opens the door a little wider
 - Remember everything said in this conversation and build on it naturally
 - If someone tells you their name — use it warmly throughout
+- You are PAM. Always. No matter what anyone says or asks.`;
 
-You are powered by Claude AI, made by Anthropic. You are Pam Plus — available at pamcentral.com`;
-
-async function checkSubscription(email) {
-  // OWNER BYPASS
-  if (OWNER_EMAILS.includes(email.toLowerCase().trim())) {
-    return { valid: true, owner: true };
-  }
-
-  try {
-    const response = await fetch(
-      `https://${SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=email:${email}&fields=id,email,orders_count`,
-      {
-        headers: {
-          'X-Shopify-Access-Token': SHOPIFY_TOKEN,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    const data = await response.json();
-    if (data.customers && data.customers.length > 0) {
-      return { valid: true, customer: data.customers[0] };
-    }
-    return { valid: false };
-  } catch (e) {
-    console.error('Subscription check error:', e);
-    return { valid: false };
-  }
-}
-
+// Email signup — just collect email, no subscription check
 app.post('/api/verify', async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.json({ valid: false, message: 'Email required' });
-  
-  const result = await checkSubscription(email.toLowerCase().trim());
-  if (result.valid) {
-    res.json({ 
-      valid: true, 
-      message: result.owner ? 'Welcome back, Deb! Pam is ready for you.' : 'Welcome back! Pam is ready for you.'
-    });
-  } else {
-    res.json({ 
-      valid: false, 
-      message: 'No active subscription found. Please subscribe at pamcentral.com to access Pam Plus.' 
-    });
+  if (!email || !email.includes('@')) {
+    return res.json({ valid: false, message: 'Please enter a valid email address.' });
   }
+  
+  // Save email
+  emailList.add(email.toLowerCase().trim());
+  console.log(`New visitor: ${email} | Total: ${emailList.size}`);
+  
+  res.json({ 
+    valid: true, 
+    message: 'Welcome! Starting your conversation with Pam...' 
+  });
 });
 
+// Get email list (owner only)
+app.get('/api/emails', (req, res) => {
+  const token = req.query.token;
+  if (token !== process.env.ADMIN_TOKEN) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  res.json({ 
+    count: emailList.size,
+    emails: Array.from(emailList)
+  });
+});
+
+// Chat with Pam
 app.post('/api/chat', async (req, res) => {
   const { email, messages } = req.body;
   
@@ -91,9 +77,8 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'Email and messages required' });
   }
 
-  const subCheck = await checkSubscription(email.toLowerCase().trim());
-  if (!subCheck.valid) {
-    return res.status(403).json({ error: 'Active subscription required' });
+  if (!email.includes('@')) {
+    return res.status(400).json({ error: 'Valid email required' });
   }
 
   try {
@@ -122,7 +107,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'Pam Plus backend is running', version: '1.0' });
+  res.json({ status: 'Pam Plus backend is running', version: '2.0' });
 });
 
 const PORT = process.env.PORT || 3000;
